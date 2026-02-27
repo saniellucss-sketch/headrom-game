@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HeadROM Rehab - Protocolo Cervical</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { background:#0b1220; }
+    .panel{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}
+    .chip{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.10)}
+    .btn{transition:transform .08s ease, background .2s ease, opacity .2s ease}
+    .btn:active{transform:scale(.98)}
+    canvas#game{display:block;width:100%;height:auto;border-radius:18px}
+    video{transform:scaleX(-1)}
+    .ok{background:#34d399}.warn{background:#fbbf24}.err{background:#f87171}
+  </style>
+</head>
+
+<body class="text-white">
+  <div class="max-w-6xl mx-auto px-4 py-6">
+    <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-5">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold tracking-tight">HeadROM Rehab (Cervical)</h1>
+        <p class="text-white/70">Protocolo guiado + métricas clínicas + gráficos + export + salvar na Sheet</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <span class="chip px-3 py-1 rounded-full text-sm text-white/80">Fases + Repetições</span>
+        <span class="chip px-3 py-1 rounded-full text-sm text-white/80">Qualidade (veloc/jerk/comp.)</span>
+        <span class="chip px-3 py-1 rounded-full text-sm text-white/80">Relatório + Gráfico</span>
+      </div>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-5">
+      <!-- VISUAL -->
+      <div class="lg:col-span-3 panel rounded-2xl p-4">
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <div class="flex items-center gap-2">
+            <span id="statusDot" class="inline-block w-2.5 h-2.5 rounded-full warn"></span>
+            <span id="statusText" class="text-sm text-white/80">Pronto para iniciar.</span>
+          </div>
+          <div class="text-sm text-white/70">FPS: <span id="fps">0</span></div>
+        </div>
+
+        <div class="relative">
+          <canvas id="game" width="900" height="540" class="shadow-2xl"></canvas>
+
+          <div id="overlay" class="absolute inset-0 rounded-2xl flex items-center justify-center bg-black/55 backdrop-blur-sm">
+            <div class="max-w-lg text-center px-6">
+              <div class="text-xl font-bold mb-2">Protocolo Cervical</div>
+              <p class="text-white/80 mb-4">
+                1) Clique em <b>Iniciar câmera</b><br/>
+                2) Olhe reto e clique em <b>Calibrar</b><br/>
+                3) Clique em <b>Iniciar protocolo</b> e siga as fases
+              </p>
+              <div class="flex flex-wrap justify-center gap-3">
+                <button id="btnCam" class="btn px-5 py-2.5 rounded-full bg-sky-500 hover:bg-sky-400 font-semibold">Iniciar câmera</button>
+                <button id="btnCal" class="btn px-5 py-2.5 rounded-full bg-white/10 hover:bg-white/15 font-semibold">Calibrar</button>
+              </div>
+              <p class="text-xs text-white/60 mt-4">Requer HTTPS/localhost para câmera.</p>
+            </div>
+          </div>
+        </div>
+
+        <video id="video" autoplay playsinline muted class="hidden"></video>
+      </div>
+
+      <!-- CONTROLES -->
+      <div class="lg:col-span-2 space-y-5">
+        <div class="panel rounded-2xl p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="font-bold">Sessão</h2>
+            <span class="chip px-3 py-1 rounded-full text-xs text-white/80" id="phaseBadge">Fase: -</span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="chip rounded-xl p-3">
+              <div class="text-white/70">Tempo</div>
+              <div class="text-xl font-mono"><span id="time">00:00</span></div>
+            </div>
+            <div class="chip rounded-xl p-3">
+              <div class="text-white/70">Reps</div>
+              <div class="text-xl font-mono"><span id="reps">0</span>/<span id="repsGoal">6</span></div>
+            </div>
+            <div class="chip rounded-xl p-3">
+              <div class="text-white/70">Qualidade</div>
+              <div class="text-xl font-mono"><span id="quality">--</span></div>
+            </div>
+            <div class="chip rounded-xl p-3">
+              <div class="text-white/70">Comp. (%)</div>
+              <div class="text-xl font-mono"><span id="comp">0</span></div>
+            </div>
+          </div>
+
+          <div class="mt-4 space-y-3">
+            <div class="grid grid-cols-2 gap-2">
+              <button id="btnStart" class="btn rounded-xl py-2 bg-emerald-500 hover:bg-emerald-400 font-semibold">Iniciar protocolo</button>
+              <button id="btnPause" class="btn rounded-xl py-2 bg-white/10 hover:bg-white/15 font-semibold">Pausar</button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <button id="btnReset" class="btn rounded-xl py-2 bg-white/10 hover:bg-white/15 font-semibold">Reset</button>
+              <button id="btnExportCSV" class="btn rounded-xl py-2 bg-white/10 hover:bg-white/15 font-semibold">Exportar CSV</button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <button id="btnExportJSON" class="btn rounded-xl py-2 bg-white/10 hover:bg-white/15 font-semibold">Exportar Resumo (JSON)</button>
+              <button id="btnSaveSheet" class="btn rounded-xl py-2 bg-white/10 hover:bg-white/15 font-semibold">Salvar na Planilha</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel rounded-2xl p-4">
+          <h2 class="font-bold mb-3">Configurações</h2>
+
+          <div class="grid grid-cols-3 gap-2 text-sm mb-3">
+            <div class="chip rounded-xl p-3">
+              <div class="text-white/70">Pitch</div>
+              <div class="font-mono text-lg"><span id="pitch">0</span>°</div>
+            </div>
+            <div class="chip rounded-xl p-3">
+              <div class="text-white/70">Yaw</div>
+              <div class="font-mono text-lg"><span id="yaw">0</span>°</div>
+            </div>
+            <div class="chip rounded-xl p-3">
+              <div class="text-white/70">Roll</div>
+              <div class="font-mono text-lg"><span id="roll">0</span>°</div>
+            </div>
+          </div>
+
+          <div class="space-y-3 text-sm">
+            <label class="block">
+              <div class="flex justify-between text-white/70 mb-1">
+                <span>Deadzone (°)</span><span id="deadVal">4°</span>
+              </div>
+              <input id="dead" type="range" min="0" max="10" step="1" value="4" class="w-full">
+            </label>
+
+            <label class="block">
+              <div class="flex justify-between text-white/70 mb-1">
+                <span>Filtro (tremor)</span><span id="smoothVal">forte</span>
+              </div>
+              <select id="smooth" class="w-full rounded-xl bg-white/10 border border-white/10 px-3 py-2">
+                <option value="0.85">leve</option>
+                <option value="0.92">médio</option>
+                <option value="0.96" selected>forte</option>
+                <option value="0.98">muito forte</option>
+              </select>
+            </label>
+
+            <label class="block">
+              <div class="flex justify-between text-white/70 mb-1">
+                <span>Repetições por fase</span><span id="repVal">6</span>
+              </div>
+              <input id="repGoal" type="range" min="2" max="12" step="1" value="6" class="w-full">
+            </label>
+
+            <label class="block">
+              <div class="flex justify-between text-white/70 mb-1">
+                <span>Tempo de “segurar” no fim (s)</span><span id="holdVal">1.0</span>
+              </div>
+              <input id="hold" type="range" min="0" max="3" step="0.5" value="1.0" class="w-full">
+            </label>
+
+            <div class="grid grid-cols-2 gap-2">
+              <button id="btnRecal" class="btn rounded-xl py-2 bg-white/10 hover:bg-white/15 font-semibold">Recalibrar</button>
+              <button id="btnEnd" class="btn rounded-xl py-2 bg-rose-500 hover:bg-rose-400 font-semibold">Finalizar</button>
+            </div>
+
+            <div class="mt-2 text-xs text-white/60">
+              <div><b>Salvar na Planilha:</b> cole a URL do Apps Script abaixo no código (const SHEET_WEBAPP_URL).</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel rounded-2xl p-4">
+          <h2 class="font-bold mb-3">Relatório (final)</h2>
+          <div class="text-sm text-white/75 mb-3" id="summaryText">Finalize a sessão para gerar resumo e gráfico.</div>
+          <canvas id="chartAngles" height="160"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs";
+
+    // =========================
+    // CONFIG: Google Sheets Web App (Apps Script)
+    // =========================
+    const SHEET_WEBAPP_URL = ""; // <- cole aqui a URL do Web App (Apps Script). Deixe vazio se não for usar.
+    const SHEET_TOKEN = "";      // <- opcional (recomendado): token secreto para evitar gravação indevida.
+
+    // ---------- helpers ----------
+    const $ = (id)=>document.getElementById(id);
+    const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+    const fmtTime=(ms)=>{
+      const s=Math.max(0,Math.floor(ms/1000));
+      return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
+    };
+
+    function setStatus(kind, text){
+      $("statusText").textContent = text;
+      const dot = $("statusDot");
+      dot.classList.remove("ok","warn","err");
+      dot.classList.add(kind);
+    }
+
+    // ---------- UI refs ----------
+    const canvas = $("game");
+    const ctx = canvas.getContext("2d");
+    const video = $("video");
+    const overlay = $("overlay");
+
+    const pitchEl=$("pitch"), yawEl=$("yaw"), rollEl=$("roll");
+    const timeEl=$("time"), repsEl=$("reps"), repsGoalEl=$("repsGoal");
+    const phaseBadge=$("phaseBadge"), qualityEl=$("quality"), compEl=$("comp");
+    const fpsEl=$("fps");
+    const summaryText=$("summaryText");
+
+    // sliders
+    const dead=$("dead"), smoothSel=$("smooth"), repGoal=$("repGoal"), hold=$("hold");
+    const deadVal=$("deadVal"), smoothVal=$("smoothVal"), repVal=$("repVal"), holdVal=$("holdVal");
+
+    let deadzone = parseFloat(dead.value);
+    let smoothAlpha = parseFloat(smoothSel.value);
+    let repsGoal = parseInt(repGoal.value,10);
+    let holdSec = parseFloat(hold.value);
+
+    dead.oninput=()=>{deadzone=parseFloat(dead.value); deadVal.textContent=deadzone+"°";}
+    smoothSel.onchange=()=>{smoothAlpha=parseFloat(smoothSel.value); smoothVal.textContent=smoothSel.options[smoothSel.selectedIndex].text;}
+    repGoal.oninput=()=>{repsGoal=parseInt(repGoal.value,10); repVal.textContent=repsGoal; repsGoalEl.textContent=repsGoal;}
+    hold.oninput=()=>{holdSec=parseFloat(hold.value); holdVal.textContent=holdSec.toFixed(1);}
+
+    // ---------- MediaPipe state ----------
+    let faceLandmarker=null;
+    let lastVideoTime=-1;
+    let isProcessing=false;
+
+    // Neutral offset
+    let offset={pitch:0,yaw:0,roll:0};
+
+    // Raw angles
+    let angles={pitch:0,yaw:0,roll:0};
+
+    // Smoothed angles (tremor-friendly)
+    let angS={pitch:0,yaw:0,roll:0};
+
+    // ---------- Protocol definition (cervical) ----------
+    // Each phase: axis primary, positive direction label, negative direction label, thresholds (deg)
+    const protocol = [
+      { name:"Rotação Direita/Esquerda", axis:"yaw", posLabel:"D", negLabel:"E", thr: {pos: 25, neg: -25}, compAxis:"roll", compMax: 12 },
+      { name:"Inclinação Direita/Esquerda", axis:"roll", posLabel:"D", negLabel:"E", thr: {pos: 20, neg: -20}, compAxis:"yaw", compMax: 12 },
+      { name:"Flexão/Extensão", axis:"pitch", posLabel:"Flex", negLabel:"Ext", thr: {pos: 18, neg: -18}, compAxis:"roll", compMax: 14 },
+    ];
+    let phaseIdx=0;
+
+    // Phase machine: need go pos -> hold -> go neg -> hold = 1 rep (cycle)
+    let running=false, paused=false;
+    let t0=null, elapsed=0;
+    let state="idle"; // idle | goPos | holdPos | goNeg | holdNeg | done
+    let holdUntil=0;
+    let reps=0;
+
+    // ---------- metrics accumulators ----------
+    // ROM max by direction per axis
+    const rom = {
+      yaw: { posMax: 0, negMax: 0 },
+      roll:{ posMax: 0, negMax: 0 },
+      pitch:{ posMax: 0, negMax: 0 },
+    };
+
+    // peak angular velocity (deg/s) for each axis
+    const vPeak = { pitch:0, yaw:0, roll:0 };
+
+    // jerk proxy: RMS of second derivative (deg/s^2) or jerk of position; we'll do jerk of angle velocity:
+    // compute a(t), then jerk is derivative of a. We'll keep discrete jerk RMS.
+    let prevAng = null;
+    let prevVel = {pitch:0,yaw:0,roll:0};
+    let prevAcc = {pitch:0,yaw:0,roll:0};
+    let jerkSum = {pitch:0,yaw:0,roll:0};
+    let jerkCount = 0;
+
+    // compensation rate (% frames where compAxis exceeds compMax while trying primary)
+    let compFrames=0, totalFrames=0;
+
+    // logs
+    const tickLog=[]; // {tMs, pitch,yaw,roll, phaseIdx, state}
+    const eventLog=[]; // events
+
+    // chart
+    let chart=null;
+
+    // ---------- math ----------
+    function extractRotation(m){
+      // m: 4x4 flatten
+      const pitch = Math.asin(-m[9]) * 180/Math.PI;
+      const yaw   = Math.atan2(m[8], m[10]) * 180/Math.PI;
+      const roll  = Math.atan2(m[1], m[5]) * 180/Math.PI;
+      return {pitch,yaw,roll};
+    }
+    function applyDeadzone(v, dz){
+      const av=Math.abs(v);
+      if (av<=dz) return 0;
+      return Math.sign(v)*(av-dz);
+    }
+
+    // ---------- visuals ----------
+    function draw(){
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+
+      // background
+      const g=ctx.createLinearGradient(0,0,canvas.width,canvas.height);
+      g.addColorStop(0,"rgba(56,189,248,0.12)");
+      g.addColorStop(1,"rgba(167,139,250,0.10)");
+      ctx.fillStyle=g; ctx.fillRect(0,0,canvas.width,canvas.height);
+
+      // phase box
+      const ph = protocol[phaseIdx] || null;
+      ctx.fillStyle="rgba(0,0,0,0.35)";
+      ctx.fillRect(18,18,canvas.width-36,92);
+      ctx.fillStyle="rgba(255,255,255,0.95)";
+      ctx.font="22px ui-sans-serif,system-ui";
+      ctx.fillText(ph ? ph.name : "Protocolo finalizado", 30, 52);
+
+      ctx.font="14px ui-sans-serif,system-ui";
+      ctx.fillStyle="rgba(255,255,255,0.85)";
+      ctx.fillText(`Fase ${phaseIdx+1}/${protocol.length} • Reps: ${reps}/${repsGoal} • Estado: ${state}`, 30, 80);
+
+      // instruction for current state
+      let instr="Calibre e inicie.";
+      if (running && !paused && ph){
+        if (state==="goPos") instr = `Vá para ${ph.posLabel} (≥ ${ph.thr.pos}°) e segure ${holdSec.toFixed(1)}s`;
+        if (state==="holdPos") instr = `Segure em ${ph.posLabel}...`;
+        if (state==="goNeg") instr = `Vá para ${ph.negLabel} (≤ ${ph.thr.neg}°) e segure ${holdSec.toFixed(1)}s`;
+        if (state==="holdNeg") instr = `Segure em ${ph.negLabel}...`;
+      }
+      if (state==="done") instr = "Fase concluída. Indo para próxima...";
+      ctx.fillText(instr, 30, 104);
+
+      // cursor indicator (center + current axis bar)
+      // center
+      ctx.strokeStyle="rgba(255,255,255,0.25)";
+      ctx.lineWidth=2;
+      ctx.beginPath();
+      ctx.moveTo(canvas.width/2,120); ctx.lineTo(canvas.width/2,canvas.height-30);
+      ctx.stroke();
+
+      // bar for primary axis
+      if (ph){
+        const axis = ph.axis;
+        const val = angS[axis];
+        const range = 40; // display range
+        const nx = clamp(val/range, -1, 1);
+        const x = canvas.width/2 + nx*(canvas.width*0.38);
+
+        ctx.fillStyle="rgba(255,255,255,0.15)";
+        ctx.fillRect(canvas.width*0.12, canvas.height-90, canvas.width*0.76, 18);
+
+        ctx.fillStyle="rgba(56,189,248,0.9)";
+        ctx.fillRect(x-6, canvas.height-94, 12, 26);
+
+        ctx.fillStyle="rgba(255,255,255,0.85)";
+        ctx.font="13px ui-sans-serif,system-ui";
+        ctx.fillText(`${axis.toUpperCase()}: ${Math.round(val)}°`, canvas.width*0.12, canvas.height-100);
+      }
+
+      if (!running){
+        ctx.fillStyle="rgba(0,0,0,0.25)";
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle="rgba(255,255,255,0.95)";
+        ctx.font="26px ui-sans-serif,system-ui";
+        ctx.fillText("Sessão parada", 30, 150);
+        ctx.font="15px ui-sans-serif,system-ui";
+        ctx.fillStyle="rgba(255,255,255,0.85)";
+        ctx.fillText("Clique em Iniciar protocolo. Recalibre se mudar de posição.", 30, 175);
+      }
+      if (paused){
+        ctx.fillStyle="rgba(0,0,0,0.35)";
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle="rgba(255,255,255,0.95)";
+        ctx.font="28px ui-sans-serif,system-ui";
+        ctx.fillText("Pausado", 30, 150);
+      }
+    }
+
+    // ---------- protocol logic ----------
+    function updateROM(){
+      // update max by direction with smoothed angles
+      for (const ax of ["pitch","yaw","roll"]){
+        const v = angS[ax];
+        if (v >= 0) rom[ax].posMax = Math.max(rom[ax].posMax, v);
+        else        rom[ax].negMax = Math.min(rom[ax].negMax, v); // negative min (more negative)
+      }
+    }
+
+    function updateKinematics(dt){
+      if (!prevAng){
+        prevAng = {...angS};
+        return;
+      }
+      // velocity (deg/s)
+      const vel = {
+        pitch:(angS.pitch - prevAng.pitch)/dt,
+        yaw:(angS.yaw - prevAng.yaw)/dt,
+        roll:(angS.roll - prevAng.roll)/dt
+      };
+      vPeak.pitch = Math.max(vPeak.pitch, Math.abs(vel.pitch));
+      vPeak.yaw   = Math.max(vPeak.yaw,   Math.abs(vel.yaw));
+      vPeak.roll  = Math.max(vPeak.roll,  Math.abs(vel.roll));
+
+      // acceleration (deg/s^2)
+      const acc = {
+        pitch:(vel.pitch - prevVel.pitch)/dt,
+        yaw:(vel.yaw - prevVel.yaw)/dt,
+        roll:(vel.roll - prevVel.roll)/dt
+      };
+
+      // jerk (deg/s^3) discrete
+      const jerk = {
+        pitch:(acc.pitch - prevAcc.pitch)/dt,
+        yaw:(acc.yaw - prevAcc.yaw)/dt,
+        roll:(acc.roll - prevAcc.roll)/dt
+      };
+
+      jerkSum.pitch += jerk.pitch*jerk.pitch;
+      jerkSum.yaw   += jerk.yaw*jerk.yaw;
+      jerkSum.roll  += jerk.roll*jerk.roll;
+      jerkCount++;
+
+      prevAng = {...angS};
+      prevVel = vel;
+      prevAcc = acc;
+    }
+
+    function updateCompensation(){
+      const ph = protocol[phaseIdx];
+      if (!ph) return;
+      totalFrames++;
+      // while moving primary, check comp axis
+      const comp = Math.abs(angS[ph.compAxis]);
+      if ((state==="goPos" || state==="goNeg" || state==="holdPos" || state==="holdNeg") && comp > ph.compMax){
+        compFrames++;
+      }
+      const pct = totalFrames ? Math.round((compFrames/totalFrames)*100) : 0;
+      compEl.textContent = String(pct);
+    }
+
+    function qualityLabel(){
+      // heuristic: lower jerk and lower comp = better
+      const jerkRMS = jerkCount ? Math.sqrt((jerkSum.pitch+jerkSum.yaw+jerkSum.roll)/ (3*jerkCount)) : 0;
+      const compPct = totalFrames ? (compFrames/totalFrames)*100 : 0;
+
+      // thresholds are empirical; you can tune later
+      if (compPct < 10 && jerkRMS < 9000) return "A";
+      if (compPct < 18 && jerkRMS < 14000) return "B";
+      if (compPct < 28 && jerkRMS < 20000) return "C";
+      return "D";
+    }
+
+    function advanceProtocol(){
+      phaseIdx++;
+      reps=0;
+      state = phaseIdx < protocol.length ? "goPos" : "idle";
+      if (phaseIdx >= protocol.length){
+        running=false;
+        paused=false;
+        setStatus("ok","Protocolo finalizado. Relatório gerado.");
+        generateReport();
+      } else {
+        eventLog.push({ts:Date.now(), event:"phase_start", phaseIdx});
+      }
+    }
+
+    function protocolTick(nowMs){
+      if (!running || paused) return;
+      const ph = protocol[phaseIdx];
+      if (!ph) return;
+
+      const v = angS[ph.axis];
+
+      if (state==="goPos"){
+        if (v >= ph.thr.pos){
+          state="holdPos";
+          holdUntil = nowMs + holdSec*1000;
+          eventLog.push({ts:Date.now(), event:"reach_pos", phaseIdx, value:v});
+        }
+      } else if (state==="holdPos"){
+        if (v < ph.thr.pos - 3) { // fell back
+          state="goPos";
+        } else if (nowMs >= holdUntil){
+          state="goNeg";
+        }
+      } else if (state==="goNeg"){
+        if (v <= ph.thr.neg){
+          state="holdNeg";
+          holdUntil = nowMs + holdSec*1000;
+          eventLog.push({ts:Date.now(), event:"reach_neg", phaseIdx, value:v});
+        }
+      } else if (state==="holdNeg"){
+        if (v > ph.thr.neg + 3){
+          state="goNeg";
+        } else if (nowMs >= holdUntil){
+          reps++;
+          repsEl.textContent = String(reps);
+          eventLog.push({ts:Date.now(), event:"rep_complete", phaseIdx, reps});
+
+          if (reps >= repsGoal){
+            state="done";
+            setTimeout(()=>{
+              // move to next phase
+              state="goPos";
+              reps=0;
+              repsEl.textContent="0";
+              advanceProtocol();
+            }, 400);
+          } else {
+            state="goPos";
+          }
+        }
+      }
+    }
+
+    // ---------- chart/report ----------
+    function buildSeries(){
+      const pts = tickLog;
+      if (!pts.length) return null;
+      const t0 = pts[0].tMs;
+      return {
+        labels: pts.map(p=>((p.tMs-t0)/1000).toFixed(1)),
+        pitch: pts.map(p=>p.pitch),
+        yaw: pts.map(p=>p.yaw),
+        roll: pts.map(p=>p.roll)
+      };
+    }
+
+    function generateReport(){
+      const jerkRMS = jerkCount ? Math.sqrt((jerkSum.pitch+jerkSum.yaw+jerkSum.roll)/(3*jerkCount)) : 0;
+      const compPct = totalFrames ? (compFrames/totalFrames)*100 : 0;
+
+      const summary = {
+        createdAt: new Date().toISOString(),
+        repsGoal,
+        holdSec,
+        deadzone,
+        smoothAlpha,
+        vPeak,
+        jerkRMS,
+        compPct,
+        quality: qualityLabel(),
+        rom: {
+          yaw:   { right: rom.yaw.posMax, left: Math.abs(rom.yaw.negMax) },
+          roll:  { right: rom.roll.posMax, left: Math.abs(rom.roll.negMax) },
+          pitch: { flex: rom.pitch.posMax, ext: Math.abs(rom.pitch.negMax) }
+        },
+        events: eventLog.slice(0,2000)
+      };
+
+      $("quality").textContent = summary.quality;
+      summaryText.innerHTML =
+        `<div class="space-y-1">
+          <div><b>Qualidade:</b> ${summary.quality} • <b>Compensação:</b> ${summary.compPct.toFixed(1)}% • <b>Jerk RMS:</b> ${Math.round(summary.jerkRMS)}</div>
+          <div><b>ROM (°)</b> Rotação: D ${summary.rom.yaw.right.toFixed(1)} | E ${summary.rom.yaw.left.toFixed(1)} • Inclinação: D ${summary.rom.roll.right.toFixed(1)} | E ${summary.rom.roll.left.toFixed(1)} • Flex/Ext: Flex ${summary.rom.pitch.flex.toFixed(1)} | Ext ${summary.rom.pitch.ext.toFixed(1)}</div>
+          <div><b>Pico Velocidade (°/s)</b> Pitch ${summary.vPeak.pitch.toFixed(1)} • Yaw ${summary.vPeak.yaw.toFixed(1)} • Roll ${summary.vPeak.roll.toFixed(1)}</div>
+        </div>`;
+
+      // chart
+      const s = buildSeries();
+      if (s){
+        const cctx = $("chartAngles").getContext("2d");
+        if (chart) chart.destroy();
+        chart = new Chart(cctx, {
+          type:"line",
+          data:{
+            labels:s.labels,
+            datasets:[
+              {label:"Pitch (°)", data:s.pitch, tension:0.18},
+              {label:"Yaw (°)", data:s.yaw, tension:0.18},
+              {label:"Roll (°)", data:s.roll, tension:0.18},
+            ]
+          },
+          options:{
+            responsive:true,
+            plugins:{ legend:{ labels:{ color:"rgba(255,255,255,0.85)" } } },
+            scales:{
+              x:{ ticks:{ color:"rgba(255,255,255,0.7)" }, title:{ display:true, text:"Tempo (s)", color:"rgba(255,255,255,0.7)" } },
+              y:{ ticks:{ color:"rgba(255,255,255,0.7)" }, title:{ display:true, text:"Ângulo (°)", color:"rgba(255,255,255,0.7)" } }
+            }
+          }
+        });
+      }
+
+      // store last summary for exports/sheet
+      window.__LAST_SUMMARY__ = summary;
+    }
+
+    // ---------- exports ----------
+    function exportCSV(){
+      const rows=[["t(s)","pitch","yaw","roll","phaseIdx","state"]];
+      if (!tickLog.length) return;
+      const t0=tickLog[0].tMs;
+      for (const p of tickLog){
+        rows.push([((p.tMs-t0)/1000).toFixed(2), p.pitch.toFixed(2), p.yaw.toFixed(2), p.roll.toFixed(2), p.phaseIdx, p.state]);
+      }
+      const csv = rows.map(r=>r.map(v=>String(v).replaceAll('"','""')).map(v=>`"${v}"`).join(",")).join("\n");
+      const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url; a.download=`headrom_ticks_${Date.now()}.csv`; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function exportJSON(){
+      const summary = window.__LAST_SUMMARY__ || null;
+      if (!summary){
+        // generate partial
+        generateReport();
+      }
+      const blob=new Blob([JSON.stringify(window.__LAST_SUMMARY__, null, 2)],{type:"application/json"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url; a.download=`headrom_summary_${Date.now()}.json`; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    async function saveToSheet(){
+      if (!SHEET_WEBAPP_URL){
+        alert("Cole a URL do Apps Script em SHEET_WEBAPP_URL no código.");
+        return;
+      }
+      const summary = window.__LAST_SUMMARY__ || null;
+      if (!summary){
+        generateReport();
+      }
+      const payload = {
+        token: SHEET_TOKEN || "",
+        kind: "headrom_cervical_session",
+        // ids: você pode preencher depois (paciente/episódio)
+        pacienteId: "",
+        episodioId: "",
+        ...window.__LAST_SUMMARY__,
+      };
+
+      try {
+        await fetch(SHEET_WEBAPP_URL, {
+          method:"POST",
+          headers:{ "Content-Type":"text/plain;charset=utf-8" }, // evita preflight na maioria dos casos
+          body: JSON.stringify(payload)
+        });
+        alert("Sessão salva na planilha com sucesso.");
+      } catch(e){
+        alert("Falha ao salvar na planilha: " + e.message);
+      }
+    }
+
+    // ---------- calibration ----------
+    function calibrateNow(){
+      if (!faceLandmarker || video.paused) return;
+      const res = faceLandmarker.detectForVideo(video, performance.now());
+      if (res?.facialTransformationMatrixes?.[0]){
+        const rot = extractRotation(res.facialTransformationMatrixes[0].data);
+        offset = {...rot};
+        setStatus("ok","Calibrado. Pode iniciar o protocolo.");
+        eventLog.push({ts:Date.now(), event:"calibrate", offset});
+      }
+    }
+
+    // ---------- init camera + AI ----------
+    async function startCamera(){
+      if (!window.isSecureContext){
+        setStatus("err","Abra em HTTPS/localhost para liberar câmera.");
+        return false;
+      }
+      try{
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video:{ width:1280, height:720, facingMode:"user" }
+        });
+        video.srcObject = stream;
+        await video.play();
+        setStatus("warn","Câmera ok. Carregando IA...");
+        return true;
+      }catch(e){
+        setStatus("err","Falha câmera: " + e.message);
+        return false;
+      }
+    }
+
+    async function initAI(){
+      try{
+        const fileset = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+        );
+        // GPU fallback CPU
+        try{
+          faceLandmarker = await FaceLandmarker.createFromOptions(fileset,{
+            baseOptions:{
+              modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+              delegate:"GPU"
+            },
+            runningMode:"VIDEO",
+            numFaces:1,
+            outputFaceBlendshapes:false,
+            outputFacialTransformationMatrixes:true
+          });
+        }catch{
+          faceLandmarker = await FaceLandmarker.createFromOptions(fileset,{
+            baseOptions:{
+              modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+              delegate:"CPU"
+            },
+            runningMode:"VIDEO",
+            numFaces:1,
+            outputFaceBlendshapes:false,
+            outputFacialTransformationMatrixes:true
+          });
+        }
+
+        setStatus("ok","IA pronta. Calibre na posição neutra.");
+        overlay.style.display="flex";
+        return true;
+      }catch(e){
+        setStatus("err","Erro IA: " + e.message);
+        return false;
+      }
+    }
+
+    // ---------- main loops ----------
+    let lastFrameTs = performance.now();
+    function step(ts){
+      const dtMs = ts - lastFrameTs;
+      lastFrameTs = ts;
+      const dt = Math.min(0.06, dtMs/1000);
+      const fps = Math.round(1/dt);
+      fpsEl.textContent = String(clamp(fps,1,120));
+
+      if (running && !paused){
+        if (!t0) t0 = ts;
+        elapsed = ts - t0;
+        timeEl.textContent = fmtTime(elapsed);
+
+        // protocol evaluation
+        protocolTick(ts);
+
+        // quality display (updated continuously)
+        qualityEl.textContent = qualityLabel();
+      }
+
+      draw();
+      requestAnimationFrame(step);
+    }
+
+    function inferenceTick(){
+      if (!faceLandmarker || video.paused || video.ended){
+        requestAnimationFrame(inferenceTick);
+        return;
+      }
+
+      if (lastVideoTime !== video.currentTime && !isProcessing){
+        isProcessing = true;
+        lastVideoTime = video.currentTime;
+
+        try{
+          const res = faceLandmarker.detectForVideo(video, performance.now());
+          if (res?.facialTransformationMatrixes?.[0]){
+            const rot = extractRotation(res.facialTransformationMatrixes[0].data);
+
+            // remove neutral
+            angles.pitch = rot.pitch - offset.pitch;
+            angles.yaw   = rot.yaw   - offset.yaw;
+            angles.roll  = rot.roll  - offset.roll;
+
+            // deadzone + smoothing (tremor-friendly)
+            const p = applyDeadzone(angles.pitch, deadzone);
+            const y = applyDeadzone(angles.yaw, deadzone);
+            const r = applyDeadzone(angles.roll, deadzone);
+
+            // Exponential smoothing: angS = alpha*angS + (1-alpha)*raw
+            angS.pitch = smoothAlpha*angS.pitch + (1-smoothAlpha)*p;
+            angS.yaw   = smoothAlpha*angS.yaw   + (1-smoothAlpha)*y;
+            angS.roll  = smoothAlpha*angS.roll  + (1-smoothAlpha)*r;
+
+            pitchEl.textContent = String(Math.round(angS.pitch));
+            yawEl.textContent   = String(Math.round(angS.yaw));
+            rollEl.textContent  = String(Math.round(angS.roll));
+
+            // metrics
+            const now = performance.now();
+            const dt = Math.max(0.016, (now - (window.__prevNow || now))/1000);
+            window.__prevNow = now;
+
+            updateROM();
+            updateKinematics(dt);
+            updateCompensation();
+
+            // log at ~10Hz
+            const tNow = Date.now();
+            if (!window.__lastLog || (tNow - window.__lastLog) > 100){
+              window.__lastLog = tNow;
+              tickLog.push({ tMs:tNow, pitch:angS.pitch, yaw:angS.yaw, roll:angS.roll, phaseIdx, state });
+              // cap to avoid gigantic logs
+              if (tickLog.length > 12000) tickLog.shift();
+            }
+
+            // update phase badge
+            const ph = protocol[phaseIdx];
+            phaseBadge.textContent = ph ? `Fase: ${ph.axis.toUpperCase()} (${ph.name})` : "Fase: Finalizado";
+          }
+        }catch{
+          // ignore frame errors
+        }finally{
+          isProcessing = false;
+        }
+      }
+
+      requestAnimationFrame(inferenceTick);
+    }
+
+    // ---------- buttons ----------
+    $("btnCam").onclick = async ()=>{
+      const okCam = await startCamera();
+      if (!okCam) return;
+      const okAI  = await initAI();
+      if (okAI) overlay.style.display="flex";
+    };
+
+    $("btnCal").onclick = ()=>calibrateNow();
+    $("btnRecal").onclick = ()=>calibrateNow();
+
+    $("btnStart").onclick = ()=>{
+      if (!faceLandmarker){ alert("Inicie a câmera primeiro."); return; }
+      if (!running){
+        running=true; paused=false;
+        t0=null; elapsed=0;
+        phaseIdx=0; reps=0;
+        state="goPos";
+        // reset accumulators
+        rom.yaw.posMax=0; rom.yaw.negMax=0;
+        rom.roll.posMax=0; rom.roll.negMax=0;
+        rom.pitch.posMax=0; rom.pitch.negMax=0;
+        vPeak.pitch=vPeak.yaw=vPeak.roll=0;
+        prevAng=null; prevVel={pitch:0,yaw:0,roll:0}; prevAcc={pitch:0,yaw:0,roll:0};
+        jerkSum={pitch:0,yaw:0,roll:0}; jerkCount=0;
+        compFrames=0; totalFrames=0;
+        tickLog.length=0; eventLog.length=0;
+        repsEl.textContent="0"; repsGoalEl.textContent=String(repsGoal);
+        timeEl.textContent="00:00";
+        eventLog.push({ts:Date.now(), event:"session_start"});
+        setStatus("ok","Sessão rodando. Siga as instruções.");
+      }
+      overlay.style.display="none";
+    };
+
+    $("btnPause").onclick = ()=>{
+      if (!running) return;
+      paused=!paused;
+      eventLog.push({ts:Date.now(), event: paused ? "pause" : "resume"});
+    };
+
+    $("btnReset").onclick = ()=>{
+      running=false; paused=false;
+      t0=null; elapsed=0; phaseIdx=0; reps=0; state="idle";
+      timeEl.textContent="00:00"; repsEl.textContent="0";
+      phaseBadge.textContent="Fase: -";
+      qualityEl.textContent="--"; compEl.textContent="0";
+      summaryText.textContent="Finalize a sessão para gerar resumo e gráfico.";
+      if (chart){ chart.destroy(); chart=null; }
+      setStatus("warn","Resetado. Calibre e inicie.");
+      overlay.style.display = faceLandmarker ? "none" : "flex";
+    };
+
+    $("btnEnd").onclick = ()=>{
+      if (!running){
+        // still allow report of partial, if any
+        if (tickLog.length) generateReport();
+        return;
+      }
+      running=false; paused=false;
+      eventLog.push({ts:Date.now(), event:"session_end_manual"});
+      setStatus("ok","Sessão finalizada. Relatório gerado.");
+      generateReport();
+    };
+
+    $("btnExportCSV").onclick = ()=>exportCSV();
+    $("btnExportJSON").onclick = ()=>exportJSON();
+    $("btnSaveSheet").onclick = ()=>saveToSheet();
+
+    // ---------- init UI defaults ----------
+    deadVal.textContent = deadzone+"°";
+    smoothVal.textContent = smoothSel.options[smoothSel.selectedIndex].text;
+    repVal.textContent = String(repsGoal);
+    repsGoalEl.textContent = String(repsGoal);
+    holdVal.textContent = holdSec.toFixed(1);
+
+    setStatus("warn","Clique em Iniciar câmera.");
+    requestAnimationFrame(step);
+    requestAnimationFrame(inferenceTick);
+  </script>
+</body>
+</html>
